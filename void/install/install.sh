@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -e
+set -ex
 
 #
 # CONFIG
@@ -10,10 +10,13 @@ set -e
 DISK="/dev/nvme0n1"
 
 # Minimum of 100M: https://wiki.archlinux.org/title/EFI_system_partition
-EFI_PARTITION_SIZE="512M"		
+EFI_PARTITION_SIZE="256M"		
 
 # Name to be used for the hostname of the Void installation
 HOSTNAME="void"
+
+# Name to be used volume group
+VOLUME_GROUP="voidvg"
 
 # Filesystem to be used
 FILE_SYSTEM="ext4"
@@ -70,21 +73,28 @@ mkfs.vfat $EFI_PARTITION
 echo $LUKS_PASSWORD | cryptsetup -q luksFormat --type luks1 $LUKS_PARTITION
 
 #
-# CREATE ROOT IN LUKS PARITION, FILE SYSTEM ON ROOT
+# CREATE VOLUME GROUP, LOGICAL ROOT PARTITION, FILE SYSTEM ON ROOT
 #
 
-# Open LUKS partition into dev/mapper/root
-echo $LUKS_PASSWORD | cryptsetup luksOpen $LUKS_PARTITION cryptroot
+# Open LUKS partition into dev/mapper/luks
+echo $LUKS_PASSWORD | cryptsetup luksOpen $LUKS_PARTITION luks
+
+# Create volume group on device
+vgcreate $VOLUME_GROUP /dev/mapper/luks
+
+# Ceate logical root volume in existing volume group
+# Home and swap volumes can also be created, but I don't see a need for more than one partition at this time.
+lvcreate --name root --extents 100%FREE $VOLUME_GROUP
 
 # Create root file system
-mkfs.$FILE_SYSTEM -L root /dev/mapper/cryptroot
+mkfs.$FILE_SYSTEM -L root /dev/$VOLUME_GROUP/root
 
 #
 # MOUNT EFI AND ROOT PARTITIONS
 #
 
 # Mount root partition
-mount /dev/mapper/cryptroot /mnt
+mount /dev/$VOLUME_GROUP/root /mnt
 
 # Mount EFI partition (needs to be mounted after root partition, to not be overwritten I assume)
 mkdir -p /mnt/boot/efi
@@ -121,20 +131,13 @@ if [[ -z $LIBC ]]; then
 fi
 
 #
-# UUIDS
-#
-
-EFI_UUID=$(blkid -s UUID -o value $EFI_PARTITION)
-ROOT_UUID=$(blkid -o value -s UUID /dev/mapper/cryptroot)
-LUKS_UUID=$(blkid -s UUID -o value $LUKS_PARTITION)
-
-#
 # FSTAB CONFIGURATION
 #
 
 #Add lines to fstab, which determines which partitions/volumes are mounted at boot
-echo -e echo -e "UUID=$ROOT_UUID	/	$FILE_SYSTEM	defaults	0	0" >> /mnt/etc/fstab
-echo -e echo -e "UUID=$EFI_UUID	/boot/efi	vfat	defaults	0	0" >> /mnt/etc/fstab
+echo -e "/dev/$VOLUME_GROUP/root	/	$FILE_SYSTEM	defaults	0	0" >> /mnt/etc/fstab
+echo -e "$EFI_PARTITION	/boot/efi	vfat	defaults	0	0" >> /mnt/etc/fstab
+
 
 #
 # GRUB CONFIGURATION
@@ -143,8 +146,9 @@ echo -e echo -e "UUID=$EFI_UUID	/boot/efi	vfat	defaults	0	0" >> /mnt/etc/fstab
 # Modify GRUB config to allow for LUKS encryption.
 echo "GRUB_ENABLE_CRYPTODISK=y" >> /mnt/etc/default/grub
 
-kernel_params="cryptdevice=UUID=${ROOT_UUID}:cryptroot root=/dev/mapper/cryptroot"
-sed -i "s#GRUB_CMDLINE_LINUX_DEFAULT=\"#GRUB_CMDLINE_LINUX_DEFAULT=\"$kernel_params #" /mnt/etc/default/grub
+LUKS_UUID=$(blkid -s UUID -o value $LUKS_PARTITION)
+kernel_params="rd.lvm.vg=$VOLUME_GROUP rd.luks.uuid=$LUKS_UUID"
+sed -i "s/GRUB_CMDLINE_LINUX_DEFAULT=\"/GRUB_CMDLINE_LINUX_DEFAULT=\"$kernel_params /" /mnt/etc/default/grub
 
 #
 # AUTOMATICALLY UNLOCK ENCRYPTED DRIVE ON BOOT
