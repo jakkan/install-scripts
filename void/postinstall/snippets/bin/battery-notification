@@ -1,0 +1,13 @@
+#!/bin/sh
+
+capacity=$(cat /sys/class/power_supply/BAT0/capacity)
+status=$(cat /sys/class/power_supply/BAT0/status)
+
+if [ "$status" = "Discharging" ]; then
+  if [ "$capacity" -lt 6 ]; then
+    notify-send -u critical -a power_supply_low "Low Battery" "Battery is running low ($capacity%).\nPutting computer to sleep."
+    loginctl suspend
+  elif [ "$capacity" -lt 11 ]; then
+    notify-send -u critical -a power_supply_low "Low Battery" "Battery is running low ($capacity%)."
+  fi
+fi

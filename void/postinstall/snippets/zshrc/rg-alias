@@ -1,0 +1,2 @@
+alias grep=rg
+alias grep_=/bin/grep

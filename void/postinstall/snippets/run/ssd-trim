@@ -1,0 +1,8 @@
+#!/bin/sh
+
+# Run fstrim once per week at random times
+exec 2>&1
+let seconds_per_week=$((1*7*24*60*60))
+
+# Run every seconds, but delay with random number of seconds between 0 and seconds_per_week
+exec snooze -H "*" -M "*" -S "*" -R $seconds_per_week /usr/bin/fstrim 

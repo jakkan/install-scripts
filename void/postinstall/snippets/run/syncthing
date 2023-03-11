@@ -1,0 +1,6 @@
+#!/bin/sh
+
+export HOME=/home/${USER}/
+exec 2>&1
+exec /usr/bin/syncthing --no-browser --logflags 0 --no-restart  
+
