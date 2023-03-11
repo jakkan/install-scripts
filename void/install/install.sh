@@ -94,12 +94,12 @@ mkfs.$FILE_SYSTEM -L root /dev/$VOLUME_GROUP/root
 # MOUNT EFI AND ROOT PARTITIONS
 #
 
-# Mount EFI partition
-mkdir -p /mnt/boot/efi
-mount $EFI_PARTITION /mnt/boot/efi
-
 # Mount root partition
 mount /dev/$VOLUME_GROUP/root /mnt
+
+# Mount EFI partition (needs to be mounted after root partition, to not be overwritten I assume)
+mkdir -p /mnt/boot/efi
+mount $EFI_PARTITION /mnt/boot/efi
 
 #
 # INSTALL SYSTEM
