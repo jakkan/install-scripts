@@ -41,12 +41,7 @@ dd bs=4M if=/path/to/void-live-ARCH-DATE-VARIANT.iso of=/dev/sdX
 
 **Get install.sh to the computer**
 
-Pull files from Github .
-```
-- sudo xbps-install -Suy git
-- git clone https://github.com/jakkan/install-scripts.git
-```
-
+Use an USB.
 
 **Connect the computer to Ethernet.**
 
@@ -54,7 +49,7 @@ Pull files from Github .
 
 Run scripts
 ```
-install.sh
+bash install.sh
 ```
 
 ## Run scripts

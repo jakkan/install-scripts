@@ -1,3 +1,5 @@
+#!/bin/bash
+
 #
 # CONFIG
 #
@@ -43,12 +45,12 @@ wipefs --all $DISK
 
 # Set partition names based on disk name for most common disks by driver: https://superuser.com/a/1449520/393604
 if [[ $DISK == *"sd"* ]]; then
-	EFI_PARTITION=$(echo $disk_selected'1')
-	LUKS_PARTITION=$(echo $disk_selected'2')
+	EFI_PARTITION=$(echo $DISK'1')
+	LUKS_PARTITION=$(echo $DISK'2')
 elif [[ $DISK == *"nvme"* ]]; then
-	EFI_PARTITION=$(echo $disk_selected'p1')
-	LUKS_PARTITION=$(echo $disk_selected'p2')
-elif
+	EFI_PARTITION=$(echo $DISK'p1')
+	LUKS_PARTITION=$(echo $DISK'p2')
+else
 	exit 1
 fi
 
@@ -75,7 +77,7 @@ echo $LUKS_PASSWORD | cryptsetup -q luksFormat --type luks1 $LUKS_PARTITION
 # I could probably get rid of the volume group
 # LVM is a system for partitioning and managing logical volumes, or filesystems, but it has nothing to do with encryption in itself. LVM is a much more advanced and flexible system than the traditional method of partitioning a disk. LVM is used for easy resizing and moving partitions. With LVM you can create as many Logical Volumes as you need and you can also use LVM to take snapshots of your filesystem. However, unless you actually need any of these features, adding the extra layer of complexity doesn't provide any benefits. Source: https://unixsheikh.com/tutorials/real-full-disk-encryption-using-grub-on-void-linux-for-bios.html
 
-# Open LUKS partition into /dev/mapper/<name>
+# Open LUKS partition into /dev/mapper/luks
 echo $LUKS_PASSWORD | cryptsetup luksOpen $LUKS_PARTITION luks
 
 # Create volume group on device
@@ -83,10 +85,10 @@ vgcreate $VOLUME_GROUP /dev/mapper/luks
 
 # Ceate logical root volume in existing volume group
 # Home and swap volumes can also be created, but I don't see a need for more than one partition at this time.
-lvcreate --name root --size 100%FREE $VOLUME_GROUP
+lvcreate --name root --extents 100%FREE $VOLUME_GROUP
 
 # Create root file system on logical volume root
-mkfs.$FILE_SYSTEM --volume-label root /dev/$HOSTNAME/root
+mkfs.$FILE_SYSTEM -L root /dev/$VOLUME_GROUP/root
 
 #
 # MOUNT EFI AND ROOT PARTITIONS
@@ -97,18 +99,13 @@ mkdir -p /mnt/boot/efi
 mount $EFI_PARTITION /mnt/boot/efi
 
 # Mount root partition
-mount /dev/$HOSTNAME/root /mnt
+mount /dev/$VOLUME_GROUP/root /mnt
 
 #
 # INSTALL SYSTEM
 #
 
-# TODO: Find out if and why copying RSA keys is needed
-# Copy the RSA keys from the installation medium to the target root directory:
-# mkdir -p /mnt/var/db/xbps/keys
-# cp /var/db/xbps/keys/* /mnt/var/db/xbps/keys/
-
-# Install Void base system to the root partition
+# Install Void base system to the root partition, echo y to accept and import repo public key
 echo y | xbps-install -SyR https://repo-default.voidlinux.org/current/$LIBC -r /mnt base-system lvm2 cryptsetup grub-x86_64-efi
 
 #
@@ -132,7 +129,7 @@ EOF
 echo $HOSTNAME > /mnt/etc/hostname
 
 if [[ -z $LIBC ]]; then
-	echo "LANG=en_US.UTF-8" > /mnt/etc/locale.conf
+  echo "LANG=en_US.UTF-8" > /mnt/etc/locale.conf
   echo "en_US.UTF-8 UTF-8" >> /mnt/etc/default/libc-locales
   xbps-reconfigure -fr /mnt/ glibc-locales
 fi
@@ -141,13 +138,11 @@ fi
 # FSTAB CONFIGURATION
 #
 
-# TODO: Find out about tmpfs
+# Find the UUID of the encrypted LUKS partition
+LUKS_UUID=$(blkid -o value -s UUID /dev/$LUKS_PARTITION)
 
 # Find the UUID of the encrypted LUKS partition
-luks_uuid=$(blkid -o value -s UUID $LUKS_PARTITION)
-
-# Find the UUID of the encrypted LUKS partition
-efi_uuid=$(blkid -o value -s UUID $EFI_PARTITION)
+EFI_UUID=$(blkid -o value -s UUID /dev/$EFI_PARTITION)
 
 #Add lines to fstab, which determines which partitions/volumes are mounted at boot
 echo -e "UUID=$LUKS_PARTITION	/	$FILE_SYSTEM	defaults	0	0" >> /mnt/etc/fstab
@@ -180,7 +175,7 @@ chroot /mnt chmod 000 /boot/volume.key
 chroot /mnt chmod -R g-rwx,o-rwx /boot
 
 #Add keyfile to /etc/crypttab
-echo "$HOSTNAME	$LUKS_PARTITION	/boot/volume.key	luks" >> /mnt/etc/crypttab
+echo "$HOSTNAME	/dev/$LUKS_PARTITION	/boot/volume.key	luks" >> /mnt/etc/crypttab
 
 #Add keyfile and crypttab to initramfs
 echo -e "install_items+=\" /boot/volume.key /etc/crypttab \"" > /mnt/etc/dracut.conf.d/10-crypt.conf
@@ -206,6 +201,6 @@ umount -R /mnt
 vgchange -an
 
 # Close LUKS encrypted partition
-cryptsetup luksClose $hostname	
+cryptsetup luksClose $HOSTNAME
 
 echo "Install is complete, reboot."
