@@ -296,6 +296,7 @@ user-dirs() {
   # I don't think I need this, since I use the default paths
   # install-package xdg-user-dirs
   # xdg-user-dirs update
+  pass
 }
 
 zoxide() {
